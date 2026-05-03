@@ -1,0 +1,17 @@
+{
+    "scroll_speed": 26.000000000000004,
+    "global_offset": 0,
+    "key_bindings": [
+        "z",
+        "x",
+        "1073741914",
+        "1073741915"
+    ],
+    "window_width": 2560,
+    "window_height": 1440,
+    "song_rate": 1.0,
+    "fullscreen": true,
+    "active_skin": "A.png",
+    "hit_position": 583,
+    "od": 9.0
+}
