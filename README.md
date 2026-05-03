@@ -9,7 +9,7 @@
 项目预装了开箱即用的皮肤和曲包：
 
 - **默认皮肤** `skins/A` — 作者日常使用的皮肤，圆形按键底板、清晰的判定特效，简洁舒适
-- **附赠曲包** `songs/1360153 Various Artists - Malody Essential Pack` — 来自 Malody 社区的 27 首入门级 4K 谱面，难度适中，适合新手练习和测试
+- **附赠曲包** `songs/1360153 Various Artists - Malody Essential Pack` — 来自 Malody 社区的 27 首入门级 4K 谱面，难度适中，适合新手练习和测试(其中Dream 3.90星 适合调延迟)
 
 > 启动游戏后按 `S` → 第2页可切换皮肤，主菜单选歌即可游玩附赠曲包。
 
