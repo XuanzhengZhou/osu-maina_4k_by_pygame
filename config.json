@@ -7,11 +7,11 @@
         "1073741914",
         "1073741915"
     ],
-    "window_width": 2560,
-    "window_height": 1440,
+    "window_width": 1280,
+    "window_height": 720,
     "song_rate": 1.0,
     "fullscreen": true,
-    "active_skin": "A.png",
-    "hit_position": 583,
+    "active_skin": "A",
+    "hit_position": 570,
     "od": 9.0
 }
