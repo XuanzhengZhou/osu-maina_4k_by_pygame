@@ -35,12 +35,33 @@ def play_replay(replay_path):
         if note.get("type") == "hold":
             note["holding"] = False
 
+    # 回放记录的镜像模式
+    if rd.mirror_mode:
+        mirror_map = {0: 3, 1: 2, 2: 1, 3: 0}
+        for note in notes_data:
+            note["lane"] = mirror_map[note["lane"]]
+
     # 使用回放记录的设置
     song_rate = rd.song_rate
     od = rd.od
     scroll_speed = rd.scroll_speed
     HIT_Y = rd.hit_position
-    LANES = [50, 150, 250, 350]
+
+    # 应用轨道间距和缩放（同 gameplay）
+    sp = g.config.get("stage_spacing", 100)
+    sc = g.config.get("stage_scale", 1.0)
+    gap = sp * sc
+    needed_w = int(gap * 3 + 80 * sc + 30)
+    if needed_w != g.SCREEN_WIDTH:
+        g.SCREEN_WIDTH = max(400, needed_w)
+        g.screen = pygame.Surface((g.SCREEN_WIDTH, g.SCREEN_HEIGHT))
+        g.set_display_mode()
+        g.set_real_background_from_original(map_path, map_data)
+    cx = g.SCREEN_WIDTH // 2
+    LANES = [int(cx - gap * 1.5), int(cx - gap * 0.5), int(cx + gap * 0.5), int(cx + gap * 1.5)]
+    g.stage_lanes = LANES
+    g.note_width = int(80 * sc)
+    note_w = g.note_width
 
     def _dr(d0, d5, d10):
         if od > 5: return d5 + (d10 - d5) * (od - 5) / 5
@@ -91,9 +112,100 @@ def play_replay(replay_path):
     g.set_real_background_from_original(map_path, map_data)
     start_time = pygame.time.get_ticks()
 
-    # 回放帧索引
+    # 回放帧索引 + 预计算判定数据
     frame_idx = 0
     replay_frames = rd.frames
+    replay_judgments = rd.judgments
+    _judge_idx = 0
+
+    _dbg = False  # 调试开关
+
+    def _reset_all_notes():
+        """完全重置所有音符为未判定状态。"""
+        nonlocal active_idx
+        if _dbg: print(f"[DBG] _reset_all_notes: {len(notes_data)} notes, active_idx={active_idx}")
+        for n in notes_data:
+            n["hit"] = False; n["missed"] = False
+            if n.get("type") == "hold": n["holding"] = False
+            if "stuck_y" in n: del n["stuck_y"]
+            if "release_time" in n: del n["release_time"]
+        active_idx = 0
+
+    def _seek_to(target_ct):
+        """跳转: 用预记录判定精确标记 target_ct 时刻之前的所有音符状态。"""
+        nonlocal frame_idx, active_idx
+        frame_idx = 0
+        for i, f in enumerate(replay_frames):
+            if f.time_ms <= target_ct: frame_idx = i
+            else: break
+        # 以「音符时间」为准：音符在 target_ct 之前就应该有判定结果
+        hit_c = 0; miss_c = 0; hold_c = 0
+        for n in notes_data:
+            n_time = n["time"]
+            if n_time >= target_ct: continue
+            if n["hit"] or n["missed"]: continue
+            best_j = None
+            for j in replay_judgments:
+                if j.lane != n["lane"]: continue
+                if n.get("type", "tap") == "tap":
+                    if abs(j.time_ms - n_time) < 200: best_j = j; break
+                elif n.get("type") == "hold":
+                    if abs(j.time_ms - n_time) < 200: best_j = j; break
+            if best_j and best_j.type != "MISS":
+                if n.get("type", "tap") == "tap": n["hit"] = True; hit_c += 1
+                elif n.get("type") == "hold": n["holding"] = True; hold_c += 1
+            else:
+                n["missed"] = True; miss_c += 1
+        rel_c = 0
+        for n in notes_data:
+            if n.get("type") != "hold": continue
+            if n["time"] >= target_ct: continue
+            if not n.get("holding") and not n["hit"]: continue
+            if n.get("holding"):
+                for j in replay_judgments:
+                    if j.lane == n["lane"] and abs(j.time_ms - n.get("end_time", 0)) < 200:
+                        n["holding"] = False; rel_c += 1
+                        if j.type == "MISS": n["missed"] = True
+                        else: n["hit"] = True
+                        break
+        if _dbg: print(f"[DBG] _seek_to(target={target_ct}): frame_idx={frame_idx} active_idx={active_idx} hit={hit_c} miss={miss_c} hold={hold_c} released={rel_c}")
+        while active_idx < len(notes_data):
+            n = notes_data[active_idx]
+            nt = n.get("end_time", n["time"])
+            if (n["hit"] or n["missed"]) and (target_ct - nt) * eff_speed > 300:
+                active_idx += 1
+            else: break
+
+    def _get_replay_state_at(t):
+        """根据预记录的判定数据，计算截至时间 t 的游戏状态。"""
+        nonlocal _judge_idx
+        s = 0; p = 0; g = 0; d = 0; o = 0; m = 0; miss_c = 0
+        cb = 0; max_cb = 0
+        total_off = 0.0; total_n = 0
+        last_off = 0
+        hit_ts = []
+        for j in replay_judgments:
+            if j.time_ms > t: break
+            w = {"PERFECT": 305, "GREAT": 300, "GOOD": 200, "OK": 100, "MEH": 50, "MISS": 0}
+            pts = w.get(j.type, 0)
+            s += pts
+            if j.type == "PERFECT": p += 1
+            elif j.type == "GREAT": g += 1
+            elif j.type == "GOOD": d += 1
+            elif j.type == "OK": o += 1
+            elif j.type == "MEH": m += 1
+            elif j.type == "MISS": miss_c += 1
+            if j.type == "MISS": cb = 0
+            else: cb += 1
+            max_cb = max(max_cb, cb)
+            total_off += j.offset_ms; total_n += 1
+            last_off = j.offset_ms
+            hit_ts.append(j.time_ms)
+        total_j = p + g + d + o + m + miss_c
+        acc_v = (s / (total_j * 305) * 100) if total_j > 0 else 100.0
+        _ks = len([h for h in hit_ts if t - h <= 3000]) / 3.0
+        avg_o = total_off / total_n if total_n > 0 else 0
+        return s, p, g, d, o, m, miss_c, cb, max_cb, acc_v, _ks, last_off, avg_o
 
     # 延迟加载 gameplay 渲染函数（避免循环导入）
     from gameplay import (_draw_stage_background, _draw_key_pads,
@@ -105,11 +217,11 @@ def play_replay(replay_path):
         real_elapsed_time = pygame.time.get_ticks() - start_time
         current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
 
-        if current_time >= 0 and not music_started and g.mixer_available:
+        if current_time >= global_offset and not music_started and g.mixer_available:
             g.audio_play()
             music_started = True
 
-        # 处理事件（允许 ESC 退出回放）
+        # 处理事件
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
@@ -120,8 +232,60 @@ def play_replay(replay_path):
                     if g.mixer_available: g.audio_stop()
                     g.clear_real_background()
                     return
+                elif event.key == pygame.K_SPACE:
+                    if g.mixer_available: g.audio_pause()
+                    import bass_audio
+                    if bass_audio.is_available():
+                        ms_pos = int(current_time) if current_time > 0 else 0
+                    pause_start = pygame.time.get_ticks()
+                    while True:
+                        g.screen.fill((30, 30, 40))
+                        t = g.font.render("PAUSED", True, (255, 255, 255))
+                        g.screen.blit(t, (g.SCREEN_WIDTH // 2 - t.get_width() // 2, g.SCREEN_HEIGHT // 2 - 50))
+                        h = g.small_font.render("[SPACE] 继续  [ESC] 退出", True, (200, 200, 200))
+                        g.screen.blit(h, (g.SCREEN_WIDTH // 2 - h.get_width() // 2, g.SCREEN_HEIGHT // 2))
+                        g.update_display()
+                        for pev in pygame.event.get():
+                            if pev.type == pygame.QUIT: pygame.quit(); sys.exit()
+                            if pev.type == pygame.KEYDOWN:
+                                if pev.key == pygame.K_SPACE: break
+                                if pev.key == pygame.K_ESCAPE:
+                                    g.clear_real_background(); return
+                        else: continue
+                        break
+                    start_time += pygame.time.get_ticks() - pause_start
+                    if g.mixer_available: g.audio_play()
+                elif event.key == pygame.K_LEFT:
+                    real_elapsed = pygame.time.get_ticks() - start_time
+                    cur_ct = real_elapsed * song_rate - map_offset - global_offset - LEAD_IN_TIME
+                    target_ct = max(0, cur_ct - 5000)
+                    # LEFT seek
+                    _reset_all_notes()
+                    _seek_to(target_ct)
+                    start_time = pygame.time.get_ticks() - int((target_ct + map_offset + global_offset + LEAD_IN_TIME) / song_rate)
+                    real_elapsed_time = pygame.time.get_ticks() - start_time
+                    current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
+                    # 音频位置 = game_time - global_offset
+                    if g.mixer_available: g.audio_seek(max(0, target_ct - global_offset))
+                elif event.key == pygame.K_RIGHT:
+                    real_elapsed = pygame.time.get_ticks() - start_time
+                    cur_ct = real_elapsed * song_rate - map_offset - global_offset - LEAD_IN_TIME
+                    target_ct = cur_ct + 5000
+                    if target_ct >= total_duration:
+                        if g.mixer_available: g.audio_stop()
+                        g.clear_real_background()
+                        if g.SCREEN_WIDTH != 400:
+                            g.SCREEN_WIDTH = 400; g.screen = pygame.Surface((400, g.SCREEN_HEIGHT)); g.set_display_mode()
+                        break
+                    _reset_all_notes()
+                    _seek_to(target_ct)
+                    start_time = pygame.time.get_ticks() - int((target_ct + map_offset + global_offset + LEAD_IN_TIME) / song_rate)
+                    real_elapsed_time = pygame.time.get_ticks() - start_time
+                    current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
+                    if g.mixer_available: g.audio_seek(max(0, target_ct - global_offset))
 
         # --- 模拟按键：从回放帧读取 ---
+        frame_proc = 0
         while frame_idx < len(replay_frames) and replay_frames[frame_idx].time_ms <= current_time:
             frame = replay_frames[frame_idx]
             new_keys = frame.pressed_keys
@@ -165,8 +329,10 @@ def play_replay(replay_path):
                                 combo += 1; max_combo = max(max_combo, combo)
                                 if best.get("type", "tap") == "tap":
                                     best["hit"] = True
+                                    if _dbg: print(f"[DBG] sim HIT tap lane={lane} t={best['time']} at frame_t={frame.time_ms}")
                                 elif best.get("type") == "hold":
                                     best["holding"] = True
+                                    if _dbg: print(f"[DBG] sim HOLD H lane={lane} t={best['time']} at frame_t={frame.time_ms}")
                                     best["stuck_y"] = HIT_Y - (best["time"] - current_time) * eff_speed
                             last_hit_offset = best["time"] - current_time
                             total_offset += last_hit_offset; total_hits += 1
@@ -206,7 +372,32 @@ def play_replay(replay_path):
                         total_offset += last_hit_offset; total_hits += 1
                         hit_timestamps.append(current_time)
 
-            frame_idx += 1
+            frame_idx += 1; frame_proc += 1
+
+        if _dbg and frame_proc > 0:
+            print(f"[DBG] frame_sim: processed {frame_proc} frames, now frame_idx={frame_idx}, current_time={current_time:.0f}")
+        # 底部漏判（帧模拟之后运行，确保按键先处理）
+        bot_miss = 0
+        while active_idx < len(notes_data):
+            old_note = notes_data[active_idx]
+            nt = old_note.get("end_time", old_note["time"])
+            if (old_note["hit"] or old_note["missed"]) and (current_time - nt) * eff_speed > 300:
+                active_idx += 1
+            else: break
+        for i in range(active_idx, len(notes_data)):
+            note = notes_data[i]
+            if (note["time"] - current_time) * eff_speed > g.SCREEN_HEIGHT + 100: break
+            if note.get("type", "tap") == "tap":
+                if not note["hit"] and not note["missed"] and current_time - note["time"] > MISS_WINDOW:
+                    note["missed"] = True; bot_miss += 1
+            elif note.get("type") == "hold":
+                if not note["hit"] and not note.get("holding"):
+                    if not note["missed"] and current_time - note["time"] > MISS_WINDOW:
+                        note["missed"] = True; bot_miss += 1
+                elif note.get("holding") and current_time >= note["end_time"]:
+                    note["hit"] = True; note["holding"] = False
+        if _dbg and bot_miss > 0:
+            print(f"[DBG] bottom-miss: {bot_miss} notes marked as miss at current_time={current_time:.0f} active_idx={active_idx} MISS_WINDOW={MISS_WINDOW:.0f}")
 
         # --- 判定文字处理（同 gameplay） ---
         if judgement_text:
@@ -224,35 +415,14 @@ def play_replay(replay_path):
             if judgement_frame_counter > 60:
                 current_judgement_type = None
 
-        # --- 底部漏判 ---
-        while active_idx < len(notes_data):
-            old_note = notes_data[active_idx]
-            nt = old_note.get("end_time", old_note["time"])
-            if (old_note["hit"] or old_note["missed"]) and (current_time - nt) * eff_speed > 300:
-                active_idx += 1
-            else: break
-
-        for i in range(active_idx, len(notes_data)):
-            note = notes_data[i]
-            if (note["time"] - current_time) * eff_speed > g.SCREEN_HEIGHT + 100:
-                break
-            note_type = note.get("type", "tap")
-            if note_type == "tap":
-                if not note["hit"] and not note["missed"] and current_time - note["time"] > MISS_WINDOW:
-                    note["missed"] = True; combo = 0; miss_count += 1
-            elif note_type == "hold":
-                if not note["hit"]:
-                    if not note["missed"] and not note.get("holding") and current_time - note["time"] > MISS_WINDOW:
-                        note["missed"] = True; combo = 0; miss_count += 1
-                    elif note.get("holding") and current_time >= note["end_time"]:
-                        note["hit"] = True; note["holding"] = False
-                        score += 305; perfect_count += 1; combo += 1
-                        max_combo = max(max_combo, combo)
-
         # --- 渲染 ---
+        stage_left = max(0, int(LANES[0] - note_w // 2 - 10))
+        stage_right = min(g.SCREEN_WIDTH, int(LANES[3] + note_w // 2 + 10))
+        if stage_left > 0:
+            pygame.draw.rect(g.screen, (10, 10, 15), (0, 0, stage_left, g.SCREEN_HEIGHT))
+        if stage_right < g.SCREEN_WIDTH:
+            pygame.draw.rect(g.screen, (10, 10, 15), (stage_right, 0, g.SCREEN_WIDTH - stage_right, g.SCREEN_HEIGHT))
         _draw_stage_background()
-        if g.skin_assets:
-            _draw_key_pads(g.key_pressed_state)
 
         # 判定线（按皮肤配置控制显隐）
         skin_show = True
@@ -286,31 +456,33 @@ def play_replay(replay_path):
                         c = (150,255,150) if note.get("holding") else (80,100,80) if note["missed"] else (0,255,100)
                         pygame.draw.rect(g.screen, c, (x-40, int(ty), 80, int(hy)-int(ty)))
 
-        # 顶部UI
+        # 顶部UI（使用预记录判定数据，不受跳转影响）
+        rs, rp, rg, rd2, ro, rm, rmiss, rcb, rmax_cb, racc, rkps, rlast_off, ravg_off = \
+            _get_replay_state_at(current_time)
+
         pygame.draw.rect(g.screen, (0, 0, 0), (0, 0, g.SCREEN_WIDTH, 40))
         pygame.draw.line(g.screen, (200, 200, 200), (0, 40), (g.SCREEN_WIDTH, 40), 2)
 
-        cb = g.small_font.render(f"Combo: {combo}", True, (255, 255, 0))
+        cb = g.small_font.render(f"Combo: {rcb}", True, (255, 255, 0))
         g.screen.blit(cb, (10, 10))
-        sign = "+" if last_hit_offset > 0 else ""
-        avg = total_offset / total_hits if total_hits > 0 else 0
-        avg_sign = "+" if avg > 0 else ""
-        od_text = g.tiny_font.render(f"Offset: {sign}{last_hit_offset:.0f}ms (avg {avg_sign}{avg:.0f}ms)", True, (150,255,150))
+        sign = "+" if rlast_off > 0 else ""
+        avg_sign = "+" if ravg_off > 0 else ""
+        od_text = g.tiny_font.render(f"Offset: {sign}{rlast_off:.0f}ms (avg {avg_sign}{ravg_off:.0f}ms)", True, (150,255,150))
         g.screen.blit(od_text, (10, 34))
-
-        pn = perfect_count + great_count + good_count + ok_count + meh_count + miss_count
-        acc_val = (score / (pn * 305) * 100) if pn > 0 else 100.0
-        ac = g.small_font.render(f"ACC: {acc_val:.2f}%", True, (0, 255, 255))
+        ac = g.small_font.render(f"ACC: {racc:.2f}%", True, (0, 255, 255))
         g.screen.blit(ac, (g.SCREEN_WIDTH - ac.get_width() - 10, 10))
-
-        hit_timestamps = [t for t in hit_timestamps if current_time - t <= 3000]
-        kps_val = len(hit_timestamps) / 3.0
-        kps = g.tiny_font.render(f"KPS: {kps_val:.1f}", True, (150, 200, 255))
+        kps = g.tiny_font.render(f"KPS: {rkps:.1f}", True, (150, 200, 255))
         g.screen.blit(kps, (g.SCREEN_WIDTH - kps.get_width() - 10, 34))
 
-        # REPLAY 标记
+        # REPLAY 标记 + mods
+        mods_parts = [f"OD:{od:.1f}"]
+        if song_rate != 1.0: mods_parts.append(f"{song_rate:.1f}x")
+        if rd.mirror_mode: mods_parts.append("Mirror")
+        mods_str = " | ".join(mods_parts)
         replay_tag = g.small_font.render("[REPLAY]", True, (255, 100, 100))
-        g.screen.blit(replay_tag, (g.SCREEN_WIDTH // 2 - replay_tag.get_width() // 2, 10))
+        g.screen.blit(replay_tag, (g.SCREEN_WIDTH // 2 - replay_tag.get_width() // 2, 8))
+        mods_text = g.tiny_font.render(mods_str, True, (200, 255, 200))
+        g.screen.blit(mods_text, (g.SCREEN_WIDTH // 2 - mods_text.get_width() // 2, 30))
 
         # 进度条
         pp = min(1.0, max(0.0, current_time / total_duration))
@@ -328,6 +500,9 @@ def play_replay(replay_path):
             fps_t = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
             g.screen.blit(fps_t, (10, g.SCREEN_HEIGHT - 30))
 
+        if g.skin_assets:
+            _draw_key_pads(g.key_pressed_state)
+
         g.update_display()
         g.clock.tick(0)
 
@@ -340,9 +515,23 @@ def play_replay(replay_path):
     if g.mixer_available:
         g.audio_stop()
     g.clear_real_background()
+    if g.SCREEN_WIDTH != 400:
+        g.SCREEN_WIDTH = 400
+        g.screen = pygame.Surface((g.SCREEN_WIDTH, g.SCREEN_HEIGHT))
+        g.set_display_mode()
 
-    # 统一结算界面（与正常游玩相同 + [REPLAY] 标记）
+    # 使用回放预记录的判定数据作为结算
+    final_score = rd.score if rd.score > 0 else score
+    c = rd.counts
+    final_perfect = c.get("perfect", perfect_count)
+    final_great = c.get("great", great_count)
+    final_good = c.get("good", good_count)
+    final_ok = c.get("ok", ok_count)
+    final_meh = c.get("meh", meh_count)
+    final_miss = c.get("miss", miss_count)
+    final_combo = rd.max_combo if rd.max_combo > 0 else max_combo
+
     from gameplay import show_results_screen
-    show_results_screen(map_path, map_data, score, perfect_count, great_count, good_count,
-                        ok_count, meh_count, miss_count, max_combo, total_judgments,
+    show_results_screen(map_path, map_data, final_score, final_perfect, final_great, final_good,
+                        final_ok, final_meh, final_miss, final_combo, total_judgments,
                         song_rate, rd, total_duration, is_replay=True)

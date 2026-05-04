@@ -102,12 +102,18 @@ def main_menu():
         title = g.font.render("=== 选歌菜单 ===", True, (255, 255, 255))
         g.screen.blit(title, (g.SCREEN_WIDTH // 2 - title.get_width() // 2, 40))
         
-        offset_text = g.small_font.render(f"Offset: {g.config.get('global_offset', 0)}ms (A / D)", True, (200, 200, 200))
+        hist_avg = g.get_average_delay()
+        hist_str = f"(avg: {hist_avg:+.0f}ms)" if g.delay_records else "(no data)"
+        offset_text = g.small_font.render(f"Offset: {g.config.get('global_offset', 0)}ms {hist_str}  (A / D)", True, (200, 200, 200))
         rate_val = g.config.get("song_rate", 1.0)
         rate_text = g.small_font.render(f"Rate: {rate_val:.2f}x (W/E)", True, (255, 200, 200))
-        
+        mirror_on = g.config.get("mirror_mode", False)
+        mirror_color = (100, 255, 150) if mirror_on else (150, 150, 150)
+        mirror_text = g.small_font.render(f"Mirror: {'ON' if mirror_on else 'OFF'} (M)", True, mirror_color)
+
         g.screen.blit(offset_text, (20, 80))
         g.screen.blit(rate_text, (20, 110))
+        g.screen.blit(mirror_text, (20, 140))
         
         # 预先计算所有曲目的高度和 Y 轴坐标，以便计算滚动视口
         sim_y = 0
@@ -133,9 +139,9 @@ def main_menu():
             
         # 设定摄像机滚动目标：让选中的曲目尽量居中
         target_item = item_bounds[selected_index]
-        target_camera_y = target_item["y"] + target_item["h"] / 2 - (g.SCREEN_HEIGHT - 170 - 80) / 2
+        target_camera_y = target_item["y"] + target_item["h"] / 2 - (g.SCREEN_HEIGHT - 190 - 80) / 2
         # 约束滚动边界
-        max_scroll = max(0, sim_y - (g.SCREEN_HEIGHT - 170 - 80))
+        max_scroll = max(0, sim_y - (g.SCREEN_HEIGHT - 190 - 80))
         target_camera_y = max(0, min(target_camera_y, max_scroll))
         
         # 平滑滚动
@@ -144,11 +150,11 @@ def main_menu():
             camera_y = target_camera_y
 
         # 因为 Rate 选项占用了 Y=140，且字体加上行距大概二十多，为防止重叠，把列表绘制的顶线往下推到 Y=175
-        clip_rect = pygame.Rect(0, 175, g.SCREEN_WIDTH, g.SCREEN_HEIGHT - 175 - 70)
+        clip_rect = pygame.Rect(0, 195, g.SCREEN_WIDTH, g.SCREEN_HEIGHT - 195 - 70)
         g.screen.set_clip(clip_rect)
-        
+
         # 渲染计算好的曲目列表
-        draw_y = 185 - camera_y
+        draw_y = 205 - camera_y
         for i, bound in enumerate(item_bounds):
             if draw_y + bound["h"] > 175 and draw_y < g.SCREEN_HEIGHT - 70:
                 color = (0, 255, 100) if i == selected_index else (150, 150, 150)
@@ -164,7 +170,7 @@ def main_menu():
         g.screen.set_clip(None)
         
         # 底部透明渐边/横线遮挡效果（可选）
-        pygame.draw.line(g.screen, (100, 100, 150), (0, 175), (g.SCREEN_WIDTH, 175), 2)
+        pygame.draw.line(g.screen, (100, 100, 150), (0, 195), (g.SCREEN_WIDTH, 195), 2)
         pygame.draw.line(g.screen, (100, 100, 150), (0, g.SCREEN_HEIGHT - 70), (g.SCREEN_WIDTH, g.SCREEN_HEIGHT - 70), 2)
 
         settings_tip = g.small_font.render("Press S for Settings", True, (200, 255, 200))
@@ -208,6 +214,10 @@ def main_menu():
                     current_rate = g.config.get("song_rate", 1.0)
                     g.config["song_rate"] = min(2.0, round(current_rate + step, 2))
 
+                # M 键切换镜像模式
+                elif event.key == pygame.K_m:
+                    g.config["mirror_mode"] = not g.config.get("mirror_mode", False)
+
                 # F 键全屏，R 键分辨率
                 elif event.key == pygame.K_f and not (pygame.key.get_mods() & pygame.KMOD_CTRL):
                     g.config["fullscreen"] = not g.config.get("fullscreen", False)
@@ -236,7 +246,7 @@ def main_menu():
                     return song
                 
                 elif event.key == pygame.K_ESCAPE:
-                    exit_confirm()
+                    return None  # 返回欢迎界面
 
         if g.show_fps:
             fps_text = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
@@ -440,6 +450,91 @@ def _od_adjuster():
         g.clock.tick(60)
 
 
+# --- 轨道间距 + 舞台缩放 ---
+
+def _stage_adjuster():
+    sp = g.config.get("stage_spacing", 100)
+    sc = g.config.get("stage_scale", 1.0)
+
+    # 皮肤默认间距（从 skin.ini ColumnWidth 换算）
+    skin_default_sp = 100
+    if g.skin_assets and g.skin_assets.get("config"):
+        cw = g.skin_assets["config"].get("ColumnWidth", "")
+        if cw:
+            try:
+                vals = [float(x.strip()) for x in cw.split(",") if x.strip()]
+                if vals:
+                    avg_cw = sum(vals) / len(vals)
+                    skin_default_sp = int(avg_cw * (600 / 480) * 1.5)
+            except: pass
+
+    while True:
+        g.screen.fill((40, 30, 50))
+        t = g.font.render("=== 轨道布局 ===", True, (255, 255, 255))
+        g.screen.blit(t, (g.SCREEN_WIDTH // 2 - t.get_width() // 2, 30))
+
+        hint = g.small_font.render("A/D:间距  Z/C:缩放  Shift:快调  [J]皮肤默认  [S]保存  [Q]取消", True, (200, 200, 200))
+        g.screen.blit(hint, (g.SCREEN_WIDTH // 2 - hint.get_width() // 2, 80))
+
+        # 显示值
+        g.screen.blit(g.small_font.render(f"间距: {sp:.0f}px    缩放: {sc:.2f}x", True, (0, 255, 150)),
+                      (g.SCREEN_WIDTH // 2 - 120, 120))
+
+        # 预览轨道
+        gap = sp * sc
+        cx = g.SCREEN_WIDTH // 2
+        lanes = [cx - gap*1.5, cx - gap*0.5, cx + gap*0.5, cx + gap*1.5]
+        nw = int(80 * sc)
+
+        for lx in lanes:
+            if 0 <= lx <= g.SCREEN_WIDTH:
+                pygame.draw.line(g.screen, (100, 100, 140), (int(lx), 180), (int(lx), 500), 1)
+
+        # 示例音符
+        import random
+        for i, lx in enumerate(lanes):
+            if 0 <= lx <= g.SCREEN_WIDTH:
+                pygame.draw.rect(g.screen, (0, 180, 255),
+                    (int(lx) - nw//2, 250 + i*40, nw, 18))
+
+        # 判定线
+        hy = g.config.get("hit_position", 500)
+        pygame.draw.line(g.screen, (255, 60, 60), (0, hy), (g.SCREEN_WIDTH, hy), 3)
+
+        pygame.draw.line(g.screen, (60, 60, 80), (0, 510), (g.SCREEN_WIDTH, 510), 1)
+
+        # 底部 bar
+        bar = int(sp / 150 * 200)
+        pygame.draw.rect(g.screen, (50, 50, 60), (100, 540, 200, 8))
+        pygame.draw.rect(g.screen, (0, 200, 150), (100, 540, min(bar, 200), 8))
+        g.screen.blit(g.tiny_font.render(f"间距 {sp}px", True, (200, 200, 200)), (100, 550))
+
+        bar2 = int(sc / 2.5 * 200)
+        pygame.draw.rect(g.screen, (50, 50, 60), (100, 570, 200, 8))
+        pygame.draw.rect(g.screen, (200, 150, 50), (100, 570, min(bar2, 200), 8))
+        g.screen.blit(g.tiny_font.render(f"缩放 {sc:.2f}x", True, (200, 200, 200)), (100, 580))
+
+        g.update_display()
+
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT: return
+            if ev.type == pygame.KEYDOWN:
+                shift = pygame.key.get_mods() & pygame.KMOD_SHIFT
+                s_sp = 10 if shift else 2
+                s_sc = 0.1 if shift else 0.02
+
+                if ev.key == pygame.K_a: sp = max(30, sp - s_sp)
+                elif ev.key == pygame.K_d: sp = min(200, sp + s_sp)
+                elif ev.key == pygame.K_z: sc = max(0.3, round(sc - s_sc, 2))
+                elif ev.key == pygame.K_c: sc = min(2.5, round(sc + s_sc, 2))
+                elif ev.key == pygame.K_j: sp = skin_default_sp; sc = 1.0
+                elif ev.key in (pygame.K_s, pygame.K_RETURN):
+                    g.config["stage_spacing"] = sp; g.config["stage_scale"] = sc
+                    g.save_config(); return
+                elif ev.key in (pygame.K_q, pygame.K_ESCAPE): return
+        g.clock.tick(60)
+
+
 # --- 判定线调节 ---
 
 def judgement_line_adjuster():
@@ -633,6 +728,7 @@ def settings_menu():
                         g.save_config(); g.update_key_map(); return
                     elif event.key == pygame.K_j: judgement_line_adjuster()
                     elif event.key == pygame.K_o: _od_adjuster()
+                    elif event.key == pygame.K_p: _stage_adjuster()
 
         g.clock.tick(60)
 
@@ -678,33 +774,35 @@ def _draw_settings_page3():
     hit_y = g.config.get("hit_position", 500)
     g.screen.blit(g.small_font.render(f"[J] 判定线位置: Y={hit_y}", True, (200, 255, 200)), (50, y)); y += 35
     od = g.config.get("od", 5.0)
-    g.screen.blit(g.small_font.render(f"[O] OD 判定精度: {od:.1f}  (按O调节)", True, (200, 255, 200)), (50, y))
+    g.screen.blit(g.small_font.render(f"[O] OD 判定精度: {od:.1f}  (按O调节)", True, (200, 255, 200)), (50, y)); y += 35
+    sp = g.config.get("stage_spacing", 100)
+    sc = g.config.get("stage_scale", 1.0)
+    g.screen.blit(g.small_font.render(f"[P] 轨道间距: {sp:.0f}  缩放: {sc:.2f}  (按P调节)", True, (200, 255, 200)), (50, y))
 
 # --- 2.5 谱面信息预览 ---
 def exit_confirm():
     import pygame
     import sys
     import global_state as g
-    
+
     while True:
-        # We can draw over the current screen, giving it a semi-transparent overlay or just a prompt
         overlay = pygame.Surface((g.SCREEN_WIDTH, g.SCREEN_HEIGHT))
         overlay.set_alpha(200)
         overlay.fill((0, 0, 0))
         g.screen.blit(overlay, (0, 0))
-        
+
         box = pygame.Rect(g.SCREEN_WIDTH // 2 - 150, g.SCREEN_HEIGHT // 2 - 80, 300, 160)
         pygame.draw.rect(g.screen, (50, 50, 70), box)
         pygame.draw.rect(g.screen, (255, 255, 255), box, 2)
-        
+
         msg = g.font.render("Quit Game?", True, (255, 255, 255))
         msg2 = g.small_font.render("[ENTER] 确认  [ESC] 取消", True, (200, 200, 200))
-        
+
         g.screen.blit(msg, (g.SCREEN_WIDTH // 2 - msg.get_width() // 2, g.SCREEN_HEIGHT // 2 - 40))
         g.screen.blit(msg2, (g.SCREEN_WIDTH // 2 - msg2.get_width() // 2, g.SCREEN_HEIGHT // 2 + 20))
-        
+
         g.update_display()
-        
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -715,4 +813,87 @@ def exit_confirm():
                     sys.exit()
                 elif event.key == pygame.K_ESCAPE:
                     return
+
+
+def welcome_screen():
+    """osu! 风格欢迎界面：粉色圆圈 + Py Mania!"""
+    import math
+    g.clear_real_background()
+
+    import time
+    start_ticks = pygame.time.get_ticks()
+    revealed = False  # 是否已显示单人模式选项
+
+    cx = g.SCREEN_WIDTH // 2
+    cy = g.SCREEN_HEIGHT // 2 - 30
+    radius = 90
+
+    while True:
+        elapsed = pygame.time.get_ticks() - start_ticks
+        # 圆圈呼吸动画
+        pulse = 1.0 + math.sin(elapsed * 0.003) * 0.04
+
+        g.screen.fill((20, 20, 35))
+
+        # 粉色外圈光晕
+        glow_r = int((radius + 12) * pulse)
+        glow = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+        for i in range(5, 0, -1):
+            alpha = 25 // i
+            pygame.draw.circle(glow, (0xff, 0x66, 0x99, alpha), (glow_r, glow_r), glow_r - i * 6)
+        g.screen.blit(glow, (cx - glow_r, cy - glow_r))
+
+        # 粉色主圆
+        pygame.draw.circle(g.screen, (0xff, 0x66, 0x99), (cx, cy), int(radius * pulse))
+        # 内圈高光
+        highlight_r = int(radius * 0.7 * pulse)
+        pygame.draw.circle(g.screen, (0xff, 0x99, 0xbb), (cx - 8, cy - 8), highlight_r)
+
+        # Py Mania! 文字
+        title_text = g.font.render("Py Mania!", True, (255, 255, 255))
+        g.screen.blit(title_text, (cx - title_text.get_width() // 2, cy - title_text.get_height() // 2))
+
+        # 单人模式入口（触发后显示）
+        if revealed:
+            # 左侧竖线（装饰）
+            line_x = cx - 60
+            pygame.draw.line(g.screen, (255, 255, 255), (line_x, cy + radius + 25), (line_x, cy + radius + 55), 2)
+            # 文字
+            solo_text = g.font.render("单人模式", True, (255, 255, 255))
+            g.screen.blit(solo_text, (cx - solo_text.get_width() // 2, cy + radius + 35))
+            dot_text = g.small_font.render("(Press ENTER)", True, (180, 180, 180))
+            g.screen.blit(dot_text, (cx - dot_text.get_width() // 2, cy + radius + 65))
+
+        # 底部版本信息
+        ver = g.tiny_font.render("v1.0  |  osu!-style 4K Rhythm Game", True, (120, 120, 140))
+        g.screen.blit(ver, (g.SCREEN_WIDTH // 2 - ver.get_width() // 2, g.SCREEN_HEIGHT - 30))
+
+        g.update_display()
+        g.clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    exit_confirm()
+                    # 返回后重置状态
+                    revealed = False
+                    start_ticks = pygame.time.get_ticks()
+                elif event.key == pygame.K_RETURN:
+                    if revealed:
+                        return
+                    else:
+                        revealed = True
+                elif event.key == pygame.K_f and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                    g.show_fps = not g.show_fps
+                else:
+                    # 任意其他键显示单人模式
+                    if not revealed:
+                        revealed = True
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # 点击圆圈或任意位置显示单人模式
+                if not revealed:
+                    revealed = True
 

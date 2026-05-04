@@ -30,7 +30,7 @@ def _draw_tap_note_with_skin(lane, y, note_missed, lane_x):
     sa = g.skin_assets
     lane_key = f"note_{lane}"
     if sa and sa["images"].get(lane_key):
-        img = _scale_to_width(sa["images"][lane_key], 80)
+        img = _scale_to_width(sa["images"][lane_key], g.note_width)
         if img:
             iw, ih = img.get_size()
             if note_missed:
@@ -58,8 +58,8 @@ def _draw_hold_note_with_skin(lane, head_y, tail_y, note, lane_x):
     if head_img is None:
         return False
 
-    note_w = 80
-    head_scaled = _scale_to_width(head_img, note_w)
+    nw = g.note_width
+    head_scaled = _scale_to_width(head_img, nw)
     if head_scaled is None:
         return False
 
@@ -79,7 +79,7 @@ def _draw_hold_note_with_skin(lane, head_y, tail_y, note, lane_x):
 
     # 绘制 body（平铺）
     if body_img and int_head_y - int_tail_y > 0:
-        body_scaled = _scale_to_width(body_img, note_w)
+        body_scaled = _scale_to_width(body_img, nw)
         if body_scaled:
             bw, bh = body_scaled.get_size()
             if bh < 1:
@@ -90,7 +90,7 @@ def _draw_hold_note_with_skin(lane, head_y, tail_y, note, lane_x):
             tail_h = 0
             tail_scaled = None
             if tail_img:
-                tail_scaled = _scale_to_width(tail_img, note_w)
+                tail_scaled = _scale_to_width(tail_img, nw)
                 if tail_scaled:
                     tail_h = tail_scaled.get_height()
 
@@ -129,7 +129,7 @@ def _draw_hold_note_with_skin(lane, head_y, tail_y, note, lane_x):
 
     # 绘制尾部
     if tail_img:
-        tail_scaled = _scale_to_width(tail_img, note_w)
+        tail_scaled = _scale_to_width(tail_img, nw)
         if tail_scaled:
             if missed:
                 tail_scaled = tail_scaled.copy()
@@ -146,19 +146,17 @@ def _draw_key_pads(lane_pressed_states):
     if not sa:
         return False
 
-    LANES = [50, 150, 250, 350]
-    # 按键底板始终固定在屏幕底部，不随判定线移动
+    LANES = g.stage_lanes
     key_area_y = g.SCREEN_HEIGHT - 105
 
     has_keys = False
     for lane in range(4):
-        # 优先用 D（亮色）变体，因为部分皮肤默认变体是黑色不可见
         key_img = sa["images"].get(f"key_{lane}D") or sa["images"].get(f"key_{lane}")
         if key_img is None:
             continue
 
         has_keys = True
-        scaled = _scale_to_width(key_img, 75)
+        scaled = _scale_to_width(key_img, max(50, g.note_width - 5))
         if not scaled:
             continue
 
@@ -349,35 +347,70 @@ def _draw_judgment_bars(screen, y_start, counts, total):
 
 # --- 统计图表 ---
 
-def _draw_histogram(screen, offsets, x, y, w, h):
-    """绘制命中偏移直方图。"""
+def _draw_histogram(screen, offsets, x, y, w, h, od=5.0, rate=1.0):
+    """绘制命中偏移直方图，按判定窗口着色。"""
     if not offsets: return
     import math
-    bin_w = 5  # ms per bin
+
+    def _dr(d0, d5, d10):
+        if od > 5: return d5 + (d10 - d5) * (od - 5) / 5
+        elif od < 5: return d5 - (d5 - d0) * (5 - od) / 5
+        return d5
+
+    pw = _dr(22.4, 19.4, 13.9) * rate   # PERFECT gold
+    gw = _dr(64, 49, 34) * rate          # GREAT white
+    dow = _dr(97, 82, 67) * rate         # GOOD green
+    ow = _dr(127, 112, 97) * rate         # OK blue
+    mw = _dr(151, 136, 121) * rate        # MEH orange
+    # beyond = MISS red
+
+    JUDGE_COLORS = [
+        (pw, (255, 200, 50)),     # PERFECT: gold
+        (gw, (220, 220, 220)),    # GREAT: white
+        (dow, (100, 220, 80)),    # GOOD: green
+        (ow, (80, 180, 255)),     # OK: blue
+        (mw, (255, 160, 60)),     # MEH: orange
+        (float("inf"), (255, 70, 70)),  # MISS: red
+    ]
+
+    bin_w = 3  # ms per bin (higher resolution)
     bins = {}
     for o in offsets:
         b = int((o + 150) // bin_w) * bin_w - 150
         bins[b] = bins.get(b, 0) + 1
 
     max_cnt = max(bins.values()) if bins else 1
-    bar_w = max(2, w // 60)
+    bar_w = max(2, w // 100)
     for b_val in range(-150, 151, bin_w):
         cnt = bins.get(b_val, 0)
+        if cnt == 0: continue
         bar_h = int(cnt / max_cnt * h)
         bx = x + int((b_val + 150) / 300 * w)
-        color = (100, 255, 100) if abs(b_val) <= 20 else (255, 200, 50)
+        # 判定窗口着色
+        abs_b = abs(b_val)
+        color = JUDGE_COLORS[-1][1]  # default MISS red
+        for threshold, c in JUDGE_COLORS:
+            if abs_b <= threshold:
+                color = c; break
         pygame.draw.rect(screen, color, (bx, y + h - bar_h, bar_w, bar_h))
 
+    # 参考线
     pygame.draw.line(screen, (255, 255, 255), (x, y + h // 2), (x + w, y + h // 2), 1)
     pygame.draw.line(screen, (255, 0, 0), (x + w // 2, y), (x + w // 2, y + h), 2)
+    # 窗口边界竖线
+    for threshold, c in JUDGE_COLORS[:-1]:
+        for sign in [-1, 1]:
+            lx = x + int((sign * threshold + 150) / 300 * w)
+            if x <= lx <= x + w:
+                pygame.draw.line(screen, c, (lx, y), (lx, y + h), 1)
 
     mean = sum(offsets) / len(offsets) if offsets else 0
     variance = sum((o - mean) ** 2 for o in offsets) / len(offsets) if offsets else 0
     sigma = math.sqrt(variance)
-    ur = 10.0 * sigma  # unstable rate
+    ur = 10.0 * sigma
 
     info = g.tiny_font.render(
-        f"μ={mean:.1f}ms  σ={sigma:.1f}ms  UR={ur:.1f}  n={len(offsets)}", True, (200, 200, 200))
+        f"μ={mean:.1f}ms  σ={sigma:.1f}ms  UR={ur:.1f}  n={len(offsets)}  OD={od:.1f}", True, (200, 200, 200))
     screen.blit(info, (x, y + h + 5))
 
 
@@ -452,19 +485,34 @@ def _draw_nsec_acc(screen, judgments, total_duration, x, y, w, h, n_sec, view_st
 
 def play_game(map_path):
     
-    LANES = [50, 150, 250, 350]
+    with open(map_path, "r", encoding="utf-8") as f:
+        map_data = json.load(f)
+
+    spacing = g.config.get("stage_spacing", 100)
+    scale = g.config.get("stage_scale", 1.0)
+    gap = spacing * scale
+
+    # 动态调整舞台宽度，确保轨道不超出屏幕
+    needed_w = int(gap * 3 + 80 * scale + 30)
+    if needed_w != g.SCREEN_WIDTH:
+        g.SCREEN_WIDTH = max(400, needed_w)
+        g.screen = pygame.Surface((g.SCREEN_WIDTH, g.SCREEN_HEIGHT))
+        g.set_display_mode()
+        g.set_real_background_from_original(map_path, map_data)
+
+    cx = g.SCREEN_WIDTH // 2
+    LANES = [int(cx - gap * 1.5), int(cx - gap * 0.5), int(cx + gap * 0.5), int(cx + gap * 1.5)]
+    g.stage_lanes = LANES
+    g.note_width = int(80 * scale)
+    note_w = g.note_width
     HIT_Y = g.config.get("hit_position", 500)
 
     song_rate = g.config.get("song_rate", 1.0)
-    
     od = g.config.get("od", 5.0)
 
     def _dr(d0, d5, d10):
-        """osu! DifficultyRange: OD 0/5/10 锚点间线性插值"""
-        if od > 5:
-            return d5 + (d10 - d5) * (od - 5) / 5
-        elif od < 5:
-            return d5 - (d5 - d0) * (5 - od) / 5
+        if od > 5: return d5 + (d10 - d5) * (od - 5) / 5
+        elif od < 5: return d5 - (d5 - d0) * (5 - od) / 5
         return d5
 
     PERFECT_WINDOW = _dr(22.4, 19.4, 13.9) * song_rate
@@ -473,18 +521,17 @@ def play_game(map_path):
     OK_WINDOW      = _dr(127, 112, 97) * song_rate
     MEH_WINDOW     = _dr(151, 136, 121) * song_rate
     MISS_WINDOW    = _dr(188, 173, 158) * song_rate
-    
+
     raw_speed = g.config.get("scroll_speed", 24)
-    # 兼容旧格式 (旧值 < 5 表示 0.1~2.0 的老倍率，自动 *30 迁移到 osu! 风格)
     if raw_speed < 5:
         raw_speed = raw_speed * 30
         g.config["scroll_speed"] = raw_speed
         g.save_config()
     eff_speed = raw_speed / 24.0 / song_rate
     global_offset = g.config["global_offset"]
-    
-    with open(map_path, "r", encoding="utf-8") as f:
-        map_data = json.load(f)
+    # 只在游玩界面显示 FPS，离开时自动关闭
+    _prev_show_fps = g.show_fps
+    g.show_fps = True
 
     notes_data = map_data["notes"]
     # 确保音符严格按照时间先后排序，这对于后续每一帧的性能剔除算法至关重要
@@ -495,6 +542,13 @@ def play_game(map_path):
         note["missed"] = False
         if note.get("type") == "hold":
             note["holding"] = False
+
+    # 镜像模式：1↔4, 2↔3 轨道互换
+    mirror_mode = g.config.get("mirror_mode", False)
+    if mirror_mode:
+        mirror_map = {0: 3, 1: 2, 2: 1, 3: 0}
+        for note in notes_data:
+            note["lane"] = mirror_map[note["lane"]]
 
     try:
         # 将谱面中的相对音频路径转换为与 json 所在真实文件夹的绝对/相对拼接路径
@@ -547,9 +601,11 @@ def play_game(map_path):
         map_path=map_path, song_rate=song_rate, od=od,
         scroll_speed=raw_speed if 'raw_speed' in dir() else g.config.get("scroll_speed", 24),
         hit_position=HIT_Y)
-    replay_data.modified = (song_rate != 1.0 or od != 5.0 or raw_speed != 24)
+    replay_data.modified = (song_rate != 1.0 or od != 5.0 or raw_speed != 24 or mirror_mode)
+    replay_data.mirror_mode = mirror_mode
     replay_data.player_name = g.config.get("player_name", "Player")
     _last_replay_frame_time = -100
+    skip_used = False  # 空格快进只允许用一次
 
     # 皮肤相关状态
     g.key_pressed_state = [False, False, False, False]
@@ -580,7 +636,10 @@ def play_game(map_path):
         current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
         
         # 音频随缘触发
-        if current_time >= 0 and not music_started and g.mixer_available:
+        # 音频延迟 global_offset ms 播放，实现 osu! 同款偏移：
+        # 正 offset → 游戏时钟领先音频 → 音符相对音频更早出现（补偿音频延迟）
+        # 负 offset → 游戏时钟落后音频 → 音符相对音频更晚出现（补偿输入延迟）
+        if current_time >= global_offset and not music_started and g.mixer_available:
             g.audio_play()
             music_started = True
         
@@ -594,7 +653,21 @@ def play_game(map_path):
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_f and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                     g.show_fps = not g.show_fps
-                    
+
+                elif event.key == pygame.K_SPACE and not skip_used:
+                    # 快进到第一个音符前 3 秒（仅在 lead-in 阶段可用）
+                    first_note = notes_data[0]["time"]
+                    target_ct = first_note - 3000
+                    if target_ct > 0 and current_time < target_ct:
+                        skip_used = True
+                        start_time -= int((target_ct - current_time) / song_rate)
+                        if target_ct >= global_offset and not music_started and g.mixer_available:
+                            g.audio_seek(max(0, target_ct - global_offset))
+                            g.audio_play()
+                            music_started = True
+                        real_elapsed_time = pygame.time.get_ticks() - start_time
+                        current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
+
                 elif event.key == pygame.K_ESCAPE:
                     if music_started and g.mixer_available:
                         g.audio_pause()
@@ -648,111 +721,35 @@ def play_game(map_path):
                     if "Exit" in action:
                         if g.mixer_available:
                             g.audio_stop()
+                        g.show_fps = _prev_show_fps
                         return "exit"
                     elif "Restart" in action:
                         if g.mixer_available:
                             g.audio_stop()
+                        g.show_fps = _prev_show_fps
                         return "restart"
                     else: # Continue
-                        # 继续有三秒倒计时
-                        # 冻结统计快照
-                        frozen_kps = len([t for t in hit_timestamps if current_time - t <= 3000]) / 3.0
-                        frozen_combo = combo
-                        frozen_acc = (score / ((perfect_count + great_count + good_count + ok_count + meh_count + miss_count) * 305) * 100) if (perfect_count + great_count + good_count + ok_count + meh_count + miss_count) > 0 else 100.0
-                        frozen_offset = last_hit_offset
-                        frozen_avg = total_offset / total_hits if total_hits > 0 else 0
+                        # 回退 3 秒，已判定音符保留结果（半透明显示），立即恢复
+                        pause_ct = current_time
+                        rewind_ct = max(0, pause_ct - 3000)
 
-                        count_start = pygame.time.get_ticks()
-                        while True:
-                            now = pygame.time.get_ticks()
-                            elp = now - count_start
-                            if elp >= 3000:
-                                break
+                        # 标记暂停前已完成的音符为 ghost（半透明、不可再判定）
+                        for n in notes_data:
+                            if n.get("hit") or n.get("missed"):
+                                n["ghost"] = True
 
-                            g.screen.fill((30, 30, 30))
-                            _draw_stage_background()
+                        # 修正时间：先补偿暂停耗时，再回退 3 秒
+                        pause_duration = pygame.time.get_ticks() - pause_start_time
+                        start_time += pause_duration + int(3000 / song_rate)
 
-                            # 皮肤按键
-                            if g.skin_assets:
-                                _draw_key_pads(g.key_pressed_state)
+                        # 回退音频
+                        if g.mixer_available:
+                            g.audio_seek(max(0, rewind_ct - global_offset))
+                            g.audio_unpause()
 
-                            pygame.draw.line(g.screen, (255, 0, 0), (0, HIT_Y), (g.SCREEN_WIDTH, HIT_Y), 5)
-
-                            # 渲染暂停时刻的音符（使用皮肤）
-                            for i in range(active_idx, len(notes_data)):
-                                note = notes_data[i]
-                                if (note["time"] - current_time) * eff_speed > g.SCREEN_HEIGHT + 100:
-                                    break
-                                if note["hit"]:
-                                    continue
-
-                                x = LANES[note["lane"]]
-                                note_type = note.get("type", "tap")
-                                if note_type == "tap":
-                                    y = HIT_Y - (note["time"] - current_time) * eff_speed
-                                    if -50 < y < g.SCREEN_HEIGHT:
-                                        if not _draw_tap_note_with_skin(note["lane"], y, note["missed"], x):
-                                            color = (100, 100, 100) if note["missed"] else (0, 200, 255)
-                                            pygame.draw.rect(g.screen, color, (x - 40, int(y) - 10, 80, 20))
-                                elif note_type == "hold":
-                                    if "stuck_y" in note:
-                                        if note.get("holding"): head_y = note["stuck_y"]
-                                        elif "release_time" in note: head_y = note["stuck_y"] + (current_time - note["release_time"]) * eff_speed
-                                        else: head_y = HIT_Y - (note["time"] - current_time) * eff_speed
-                                    else:
-                                        head_y = HIT_Y - (note["time"] - current_time) * eff_speed
-                                    tail_y = HIT_Y - (note["end_time"] - current_time) * eff_speed
-                                    if int(head_y) - int(tail_y) > 0 and int(tail_y) < g.SCREEN_HEIGHT and int(head_y) > -50:
-                                        if not _draw_hold_note_with_skin(note["lane"], head_y, tail_y, note, x):
-                                            color = (150, 255, 150) if note.get("holding") else (80, 100, 80) if note["missed"] else (0, 255, 100)
-                                            pygame.draw.rect(g.screen, color, (x - 40, int(tail_y), 80, int(head_y) - int(tail_y)))
-
-                            # 顶部 UI + 冻结统计
-                            pygame.draw.rect(g.screen, (0, 0, 0), (0, 0, g.SCREEN_WIDTH, 40))
-                            pygame.draw.line(g.screen, (200, 200, 200), (0, 40), (g.SCREEN_WIDTH, 40), 2)
-
-                            cb = g.small_font.render(f"Combo: {frozen_combo}", True, (255, 255, 0))
-                            g.screen.blit(cb, (10, 10))
-                            sign = "+" if frozen_offset > 0 else ""
-                            avg_sign = "+" if frozen_avg > 0 else ""
-                            od = g.tiny_font.render(f"Offset: {sign}{frozen_offset:.0f}ms (avg {avg_sign}{frozen_avg:.0f}ms)", True, (150, 255, 150))
-                            g.screen.blit(od, (10, 34))
-
-                            ac = g.small_font.render(f"ACC: {frozen_acc:.2f}%", True, (0, 255, 255))
-                            g.screen.blit(ac, (g.SCREEN_WIDTH - ac.get_width() - 10, 10))
-                            kps = g.tiny_font.render(f"KPS: {frozen_kps:.1f}", True, (150, 200, 255))
-                            g.screen.blit(kps, (g.SCREEN_WIDTH - kps.get_width() - 10, 34))
-
-                            pygame.draw.rect(g.screen, (50, 50, 50), (0, 0, g.SCREEN_WIDTH, 4))
-                            progress_percentage = min(1.0, max(0.0, current_time / total_duration))
-                            pygame.draw.rect(g.screen, (100, 200, 255), (0, 0, int(g.SCREEN_WIDTH * progress_percentage), 4))
-
-                            cnum = 3 - (elp // 1000)
-                            if cnum > 0:
-                                text = g.font.render(str(cnum), True, (255, 255, 255))
-                                g.screen.blit(text, (g.SCREEN_WIDTH // 2 - text.get_width() // 2, g.SCREEN_HEIGHT // 2 - text.get_height() // 2))
-
-                            if g.show_fps:
-                                fps_text = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
-                                g.screen.blit(fps_text, (10, g.SCREEN_HEIGHT - 30))
-
-                            g.update_display()
-                            for ev in pygame.event.get():
-                                if ev.type == pygame.QUIT:
-                                    pygame.quit(); sys.exit()
-                            g.clock.tick(60)
-                        
-                        # 修正在暂停和倒计时期间流逝的时间
-                        pause_end_time = pygame.time.get_ticks()
-                        start_time += (pause_end_time - pause_start_time)
-                        
-                        # 同步current_time否则刚刚过去一帧可能会突变
+                        # 同步 current_time
                         real_elapsed_time = pygame.time.get_ticks() - start_time
                         current_time = real_elapsed_time * song_rate - map_offset - global_offset - LEAD_IN_TIME
-                        
-                        if current_time >= 0 and music_started and g.mixer_available:
-                            g.audio_unpause()
-                        # 需要跳过这个事件循环中由于暂停产生的堆积事件，可以直接continue跳过剩下的KEYDOWN处理
                         continue
 
                 # 判断按键是否是有效键
@@ -764,7 +761,7 @@ def play_game(map_path):
                     valid_notes = []
                     for i in range(active_idx, len(notes_data)):
                         n = notes_data[i]
-                        if n["lane"] == lane_pressed and not n["hit"] and not n["missed"] and not n.get("holding", False):
+                        if n["lane"] == lane_pressed and not n["hit"] and not n["missed"] and not n.get("holding", False) and not n.get("ghost", False):
                             valid_notes.append(n)
                             # 考虑到音符已经整体排序，我们只需要看距离当前最近的少数几个就行了，不必完全遍历
                             if len(valid_notes) > 3:
@@ -825,7 +822,7 @@ def play_game(map_path):
                     g.key_pressed_state[lane_released] = False
                     
                     # 寻找该轨道正在被按住（holding）的长条音符
-                    holding_notes = [notes_data[i] for i in range(active_idx, len(notes_data)) if notes_data[i].get("holding") and notes_data[i]["lane"] == lane_released and not notes_data[i]["hit"] and not notes_data[i]["missed"]]
+                    holding_notes = [notes_data[i] for i in range(active_idx, len(notes_data)) if notes_data[i].get("holding") and notes_data[i]["lane"] == lane_released and not notes_data[i]["hit"] and not notes_data[i]["missed"] and not notes_data[i].get("ghost", False)]
                     if holding_notes:
                         target_note = holding_notes[0]
                         target_note["holding"] = False # 解除按住状态
@@ -867,6 +864,15 @@ def play_game(map_path):
 
         max_combo = max(max_combo, combo)
 
+        # --- 舞台裁剪区域 (只画舞台外侧的暗边, 不裁剪舞台内) ---
+        stage_left = max(0, int(LANES[0] - note_w // 2 - 10))
+        stage_right = min(g.SCREEN_WIDTH, int(LANES[3] + note_w // 2 + 10))
+        if stage_left > 0:
+            pygame.draw.rect(g.screen, (10, 10, 15), (0, 0, stage_left, g.SCREEN_HEIGHT))
+        if stage_right < g.SCREEN_WIDTH:
+            pygame.draw.rect(g.screen, (10, 10, 15),
+                             (stage_right, 0, g.SCREEN_WIDTH - stage_right, g.SCREEN_HEIGHT))
+
         # --- 皮肤：舞台背景 ---
         _draw_stage_background()
 
@@ -904,16 +910,16 @@ def play_game(map_path):
             
             # 底部漏判检测
             if note_type == "tap":
-                if not note["hit"] and not note["missed"] and current_time - note["time"] > MISS_WINDOW:
+                if not note["hit"] and not note["missed"] and not note.get("ghost") and current_time - note["time"] > MISS_WINDOW:
                     note["missed"] = True
                     judgement_text = "MISS"
                     combo = 0
                     miss_count += 1
-                    
+
             elif note_type == "hold":
                 if not note["hit"]:
                     # 如果没接住长条头
-                    if not note["missed"] and not note.get("holding") and current_time - note["time"] > MISS_WINDOW:
+                    if not note["missed"] and not note.get("holding") and not note.get("ghost") and current_time - note["time"] > MISS_WINDOW:
                         note["missed"] = True
                         judgement_text = "MISS"
                         combo = 0
@@ -926,8 +932,8 @@ def play_game(map_path):
                         judgement_text = "PERFECT"
                         score += 305; perfect_count += 1; combo += 1
                 
-            # 渲染 (即便是 miss 的音符，只要没流出屏幕也继续渲染)
-            if not note["hit"]:
+            # 渲染 (跳过 hit 和 ghost 音符)
+            if not note["hit"] and not note.get("ghost"):
                 x = LANES[note["lane"]]
 
                 if note_type == "tap":
@@ -937,6 +943,12 @@ def play_game(map_path):
                         if not _draw_tap_note_with_skin(note["lane"], y, note["missed"], x):
                             color = (100, 100, 100) if note["missed"] else (0, 200, 255)
                             pygame.draw.rect(g.screen, color, (x - 40, int(y) - 10, 80, 20))
+                        # ghost 音符半透明覆盖（仅稍暗于正常音符）
+                        if note.get("ghost"):
+                            nw = g.note_width
+                            ghost = pygame.Surface((nw + 8, 26), pygame.SRCALPHA)
+                            ghost.fill((20, 20, 30, 80))
+                            g.screen.blit(ghost, (x - nw // 2 - 4, int(y) - 13))
 
                 elif note_type == "hold":
                     # 如果长条按下了，用按下瞬间锁死的 Y 坐标；如果中途松手 miss 了，让剩下来的一小截从松手位置以正常速度掉出屏幕外
@@ -970,10 +982,12 @@ def play_game(map_path):
                             else:
                                 color = (0, 255, 100)
                             pygame.draw.rect(g.screen, color, (x - 40, int_tail_y, 80, rect_h))
-
-        # --- 皮肤按键底板（在音符之上，确保四个圈始终可见） ---
-        if g.skin_assets:
-            _draw_key_pads(g.key_pressed_state)
+                        # ghost 长条半透明覆盖（仅稍暗）
+                        if note.get("ghost"):
+                            nw = g.note_width
+                            ghost = pygame.Surface((nw + 8, rect_h), pygame.SRCALPHA)
+                            ghost.fill((20, 20, 30, 80))
+                            g.screen.blit(ghost, (x - nw // 2 - 4, int_tail_y))
 
         # --- 顶部横幅UI显示 (黑条防遮挡) ---
         pygame.draw.rect(g.screen, (0, 0, 0), (0, 0, g.SCREEN_WIDTH, 40)) # 顶部黑色背景条
@@ -997,7 +1011,18 @@ def play_game(map_path):
         kps_color = (150, 200, 255) if kps < 10 else (255, 200, 100) if kps < 20 else (255, 100, 100)
         kps_display = g.tiny_font.render(f"KPS: {kps:.1f}", True, kps_color)
         g.screen.blit(kps_display, (g.SCREEN_WIDTH - kps_display.get_width() - 10, 34))
-        
+
+        # FPS + Mods 居中显示在顶部栏
+        if g.show_fps:
+            mods_parts = [f"OD:{od:.1f}"]
+            if song_rate != 1.0: mods_parts.append(f"{song_rate:.1f}x")
+            if mirror_mode: mods_parts.append("Mirror")
+            mods_str = " | ".join(mods_parts)
+            mods_text = g.tiny_font.render(mods_str, True, (200, 255, 200))
+            g.screen.blit(mods_text, (g.SCREEN_WIDTH // 2 - mods_text.get_width() // 2, 10))
+            fps_text = g.tiny_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 200, 100))
+            g.screen.blit(fps_text, (g.SCREEN_WIDTH // 2 - fps_text.get_width() // 2, 30))
+
         processed_notes = perfect_count + great_count + good_count + ok_count + meh_count + miss_count
         acc = (score / (processed_notes * 305) * 100) if processed_notes > 0 else 100.0
         acc_display = g.small_font.render(f"ACC: {acc:.2f}%", True, (0, 255, 255))
@@ -1037,10 +1062,6 @@ def play_game(map_path):
             if judgement_frame_counter > 60:
                 current_judgement_type = None
 
-        if g.show_fps:
-            fps_text = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
-            g.screen.blit(fps_text, (10, g.SCREEN_HEIGHT - 30))
-
         # 回放帧录制 (~60fps 或按键变化时)
         keys_mask = (1 if g.key_pressed_state[0] else 0) | \
                     (2 if g.key_pressed_state[1] else 0) | \
@@ -1050,6 +1071,10 @@ def play_game(map_path):
            (replay_data.frames and replay_data.frames[-1].pressed_keys != keys_mask):
             replay_data.add_frame(current_time, keys_mask)
             _last_replay_frame_time = current_time
+
+        # --- 按键底板（最上层，确保四个圈始终可见） ---
+        if g.skin_assets:
+            _draw_key_pads(g.key_pressed_state)
 
         g.update_display() # 刷新屏幕
         g.clock.tick(0) # 彻底解除帧率限制，让游戏火力全开飙到多高是多高 (0表示不限速)
@@ -1068,12 +1093,17 @@ def play_game(map_path):
         score=score,
         acc=(score / (total_judgments * 305) * 100) if total_judgments > 0 else 100.0)
 
-    # 退出游戏时清除 real_screen 背景（结算界面无背景）
+    # 退出游戏时清除背景，恢复默认宽度
     g.clear_real_background()
+    if g.SCREEN_WIDTH != 400:
+        g.SCREEN_WIDTH = 400
+        g.screen = pygame.Surface((g.SCREEN_WIDTH, g.SCREEN_HEIGHT))
+        g.set_display_mode()
     
     import datetime
     
     # === 结算界面 ===
+    g.show_fps = _prev_show_fps
     show_results_screen(map_path, map_data, score, perfect_count, great_count, good_count,
                         ok_count, meh_count, miss_count, max_combo, total_judgments,
                         song_rate, replay_data, total_duration, is_replay=False)
@@ -1102,15 +1132,24 @@ def show_results_screen(map_path, map_data, score, perfect_count, great_count, g
     # 保存历史
     if rel_path not in g.history_data:
         g.history_data[rel_path] = []
+    od_val = replay_data.od if hasattr(replay_data, 'od') else g.config.get("od", 5.0)
+    mirror_val = replay_data.mirror_mode if hasattr(replay_data, 'mirror_mode') else False
     record = {"score": std_score, "acc": acc, "rank": rank,
-              "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "rate": song_rate}
+              "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+              "rate": song_rate, "od": od_val, "mirror": mirror_val}
     g.history_data[rel_path].append(record)
     g.history_data[rel_path].sort(key=lambda x: x["score"], reverse=True)
     if len(g.history_data[rel_path]) > 10:
         g.history_data[rel_path] = g.history_data[rel_path][:10]
     g.save_history()
 
+    # 记录本局平均延迟
+    if replay_data.judgments:
+        j_offsets = [j.offset_ms for j in replay_data.judgments]
+        g.add_delay_record(sum(j_offsets) / len(j_offsets))
+
     # 统计页面状态
+    od_val = replay_data.od if hasattr(replay_data, 'od') else g.config.get("od", 5.0)
     page = 0
     stat_view_start = 0.0; stat_view_end = 1.0
     stat_n_sec = 5.0
@@ -1121,23 +1160,32 @@ def show_results_screen(map_path, map_data, score, perfect_count, great_count, g
         g.screen.fill((20, 20, 35))
 
         if page == 0:
-            _draw_results_page1(base_song_name, acc, combo, song_rate, _counts, _total_hits, std_score, rank, rank_color, is_replay)
-        elif page == 1:
-            _draw_results_stats_page1(hit_offsets)
-        elif page == 2:
-            _draw_results_stats_page2(replay_data.judgments, total_judgments, stat_view_start, stat_view_end)
-        elif page == 3:
-            _draw_results_stats_page3(replay_data.judgments, total_duration, stat_n_sec, stat_view_start, stat_view_end, stat_adjust_n)
-
-        # 底部提示
-        hint = g.tiny_font.render("[ENTER] 返回  [S] 保存回放  [←→] 翻页", True, (150, 150, 150))
-        g.screen.blit(hint, (g.SCREEN_WIDTH // 2 - hint.get_width() // 2, g.SCREEN_HEIGHT - 25))
-
-        if g.show_fps:
-            fps_t = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
-            g.screen.blit(fps_t, (10, g.SCREEN_HEIGHT - 30))
-
-        g.update_display()
+            # 第0页：居中渲染
+            _draw_results_page1(base_song_name, acc, combo, song_rate, _counts, _total_hits, std_score, rank, rank_color, od_val, replay_data.mirror_mode, is_replay)
+            hint = g.tiny_font.render("[ENTER] 返回  [S] 保存回放  [←→] 翻页", True, (150, 150, 150))
+            g.screen.blit(hint, (g.SCREEN_WIDTH // 2 - hint.get_width() // 2, g.SCREEN_HEIGHT - 25))
+            if g.show_fps:
+                fps_t = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
+                g.screen.blit(fps_t, (10, g.SCREEN_HEIGHT - 30))
+            g.update_display()
+        else:
+            # 第1-3页：全屏渲染
+            rs = g.real_screen
+            if rs is None: rs = g.screen
+            rw, rh = rs.get_width(), rs.get_height()
+            rs.fill((20, 20, 35))
+            if page == 1:
+                _draw_results_stats_page1_full(rs, rw, rh, hit_offsets, od_val, song_rate)
+            elif page == 2:
+                _draw_results_stats_page2_full(rs, rw, rh, replay_data.judgments, total_judgments, stat_view_start, stat_view_end)
+            else:
+                _draw_results_stats_page3_full(rs, rw, rh, replay_data.judgments, total_duration, stat_n_sec, stat_view_start, stat_view_end, stat_adjust_n)
+            hint = g.tiny_font.render("[ENTER] 返回  [←→] 翻页", True, (150, 150, 150))
+            rs.blit(hint, (rw // 2 - hint.get_width() // 2, rh - 25))
+            if g.show_fps:
+                fps_t = g.small_font.render(f"FPS: {int(g.clock.get_fps())}", True, (255, 100, 100))
+                rs.blit(fps_t, (10, rh - 30))
+            pygame.display.flip()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
@@ -1171,21 +1219,21 @@ def show_results_screen(map_path, map_data, score, perfect_count, great_count, g
                 elif page == 3:
                     shift = pygame.key.get_mods() & pygame.KMOD_SHIFT
                     s = 0.05 if shift else 0.2
-                    if stat_adjust_n:
+                    if event.key == pygame.K_x:
+                        stat_adjust_n = not stat_adjust_n
+                    elif stat_adjust_n:
                         ns = 0.5 if shift else 0.1
                         if event.key == pygame.K_a: stat_n_sec = max(0.5, stat_n_sec - ns)
                         elif event.key == pygame.K_d: stat_n_sec = min(30, stat_n_sec + ns)
-                        elif event.key == pygame.K_x: stat_adjust_n = False
                     else:
                         if event.key == pygame.K_a: stat_view_end = max(0.05, stat_view_end - s)
                         elif event.key == pygame.K_d: stat_view_end = min(1.0, stat_view_end + s)
                         elif event.key == pygame.K_z: dv = stat_view_end - stat_view_start; stat_view_start = max(0, stat_view_start - s); stat_view_end = stat_view_start + dv
                         elif event.key == pygame.K_c: dv = stat_view_end - stat_view_start; stat_view_start = min(1.0 - dv, stat_view_start + s); stat_view_end = stat_view_start + dv
-                        elif event.key == pygame.K_x: stat_adjust_n = True
         g.clock.tick(60)
 
 
-def _draw_results_page1(base_song_name, acc, combo, song_rate, counts, total, std_score, rank, rank_color, is_replay=False):
+def _draw_results_page1(base_song_name, acc, combo, song_rate, counts, total, std_score, rank, rank_color, od_val=5.0, mirror_mode=False, is_replay=False):
     """结算第1页：精度圆环 + Rank + 判定条"""
     tag = "[REPLAY] " if is_replay else ""
     title = g.font.render(f"=== {tag}结算 ===", True, (255, 100, 100) if is_replay else (255, 255, 255))
@@ -1196,20 +1244,41 @@ def _draw_results_page1(base_song_name, acc, combo, song_rate, counts, total, st
     g.draw_marquee_text(g.screen, base_song_name, g.tiny_font,
         (150, 200, 255), g.SCREEN_WIDTH // 2, 230, g.SCREEN_WIDTH - 40)
     info_y = 255
-    ac_t = g.small_font.render(f"ACC: {acc:.2f}%  |  Max Combo: {combo}x  |  {song_rate:.1f}x", True, (200, 200, 200))
+    # 构建 mods 显示字符串
+    mods_parts = [f"OD:{od_val:.1f}"]
+    if song_rate != 1.0: mods_parts.append(f"{song_rate:.1f}x")
+    if mirror_mode: mods_parts.append("Mirror")
+    mods_str = "  ".join(mods_parts)
+    ac_t = g.small_font.render(f"ACC: {acc:.2f}%  |  Max Combo: {combo}x  |  [{mods_str}]", True, (200, 200, 200))
     g.screen.blit(ac_t, (g.SCREEN_WIDTH // 2 - ac_t.get_width() // 2, info_y))
     _draw_judgment_bars(g.screen, info_y + 30, counts, total if total > 0 else 1)
 
 
 def _draw_results_stats_page1(offsets):
-    """统计第1页：命中偏移直方图"""
+    """统计第1页：命中偏移直方图（居中版）"""
     title = g.font.render("=== 命中偏移 ===", True, (255, 255, 255))
     g.screen.blit(title, (g.SCREEN_WIDTH // 2 - title.get_width() // 2, 8))
-    _draw_histogram(g.screen, offsets, 20, 50, 360, 400)
+    _draw_histogram(g.screen, offsets, 20, 50, 360, 400, g.config.get("od", 5.0), g.config.get("song_rate", 1.0))
+
+
+def _draw_results_stats_page1_full(screen, rw, rh, offsets, od, rate):
+    """统计第1页：命中偏移直方图（全屏版）"""
+    title = g.font.render("=== 命中偏移 ===", True, (255, 255, 255))
+    screen.blit(title, (rw // 2 - title.get_width() // 2, 8))
+    # 图例
+    legend = [("PERFECT", (255,200,50)), ("GREAT", (220,220,220)), ("GOOD", (100,220,80)),
+              ("OK", (80,180,255)), ("MEH", (255,160,60)), ("MISS", (255,70,70))]
+    lx = rw // 2 - 180
+    for label, color in legend:
+        pygame.draw.rect(screen, color, (lx, 38, 14, 10))
+        lx += g.tiny_font.render(label, True, color).get_width() + 25
+        screen.blit(g.tiny_font.render(label, True, color), (lx - 20, 36))
+        lx += 5
+    _draw_histogram(screen, offsets, 30, 65, rw - 60, rh - 100, od, rate)
 
 
 def _draw_results_stats_page2(judgments, total_notes, view_start, view_end):
-    """统计第2页：时间-ACC 曲线"""
+    """统计第2页：时间-ACC 曲线（居中版）"""
     title = g.font.render("=== ACC 曲线 ===", True, (255, 255, 255))
     g.screen.blit(title, (g.SCREEN_WIDTH // 2 - title.get_width() // 2, 8))
     hint = g.tiny_font.render("A/D:缩放  Z/C:平移", True, (150, 150, 150))
@@ -1217,11 +1286,30 @@ def _draw_results_stats_page2(judgments, total_notes, view_start, view_end):
     _draw_time_acc_curve(g.screen, judgments, total_notes, 20, 55, 360, 500, view_start, view_end)
 
 
+def _draw_results_stats_page2_full(screen, rw, rh, judgments, total_notes, view_start, view_end):
+    """统计第2页：时间-ACC 曲线（全屏版）"""
+    title = g.font.render("=== ACC 曲线 ===", True, (255, 255, 255))
+    screen.blit(title, (rw // 2 - title.get_width() // 2, 8))
+    hint = g.tiny_font.render("A/D:缩放  Z/C:平移", True, (150, 150, 150))
+    screen.blit(hint, (rw // 2 - hint.get_width() // 2, 35))
+    _draw_time_acc_curve(screen, judgments, total_notes, 30, 65, rw - 60, rh - 95, view_start, view_end)
+
+
 def _draw_results_stats_page3(judgments, total_duration, n_sec, view_start, view_end, adjust_n):
-    """统计第3页：每 N 秒 ACC"""
+    """统计第3页：每 N 秒 ACC（居中版）"""
     title = g.font.render("=== 分段 ACC ===", True, (255, 255, 255))
     g.screen.blit(title, (g.SCREEN_WIDTH // 2 - title.get_width() // 2, 8))
     mode_hint = "(调节N)" if adjust_n else "(缩放)"
     hint = g.tiny_font.render(f"A/D:缩放  Z/C:平移  X:{mode_hint}", True, (150, 150, 150))
     g.screen.blit(hint, (g.SCREEN_WIDTH // 2 - hint.get_width() // 2, 30))
     _draw_nsec_acc(g.screen, judgments, total_duration, 20, 55, 360, 500, n_sec, view_start, view_end)
+
+
+def _draw_results_stats_page3_full(screen, rw, rh, judgments, total_duration, n_sec, view_start, view_end, adjust_n):
+    """统计第3页：每 N 秒 ACC（全屏版）"""
+    title = g.font.render("=== 分段 ACC ===", True, (255, 255, 255))
+    screen.blit(title, (rw // 2 - title.get_width() // 2, 8))
+    mode_hint = f"[调节N: {n_sec:.1f}s]" if adjust_n else "[缩放视图]"
+    hint = g.tiny_font.render(f"A/D:缩放  Z/C:平移  X:{mode_hint}", True, (150, 150, 150))
+    screen.blit(hint, (rw // 2 - hint.get_width() // 2, 35))
+    _draw_nsec_acc(screen, judgments, total_duration, 30, 65, rw - 60, rh - 95, n_sec, view_start, view_end)

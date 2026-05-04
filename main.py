@@ -12,10 +12,14 @@ import gameplay
 
 if __name__ == "__main__":
     while True:
-        song_dict = menus.main_menu()
-        final_map = preview.preview_map(song_dict)
-        if final_map:
-            while True:
-                res = gameplay.play_game(final_map)
-                if res != "restart":
-                    break
+        menus.welcome_screen()
+        while True:
+            song_dict = menus.main_menu()
+            if song_dict is None:
+                break  # ESC → 返回欢迎界面
+            final_map = preview.preview_map(song_dict)
+            if final_map:
+                while True:
+                    res = gameplay.play_game(final_map)
+                    if res != "restart":
+                        break

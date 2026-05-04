@@ -1,17 +1,20 @@
 {
     "scroll_speed": 26.000000000000004,
-    "global_offset": 0,
+    "global_offset": -105,
     "key_bindings": [
         "z",
         "x",
         "1073741914",
         "1073741915"
     ],
-    "window_width": 1280,
-    "window_height": 720,
+    "window_width": 2560,
+    "window_height": 1440,
     "song_rate": 1.0,
     "fullscreen": true,
-    "active_skin": "A",
-    "hit_position": 570,
-    "od": 9.0
+    "active_skin": "R Skin v2.2 (New style_Diamond) (Retsukiya)",
+    "hit_position": 553,
+    "od": 8.0,
+    "stage_spacing": 80,
+    "stage_scale": 1.2,
+    "mirror_mode": false
 }

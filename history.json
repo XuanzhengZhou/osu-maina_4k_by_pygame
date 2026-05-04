@@ -23,6 +23,13 @@
     ],
     "songs/1360153 Various Artists - Malody Essential Pack/Various Artists - Malody Essential Pack (Magikarp1234) [iowo - DREAM (Dreamin's KEY BEGINNER LV.11)].json": [
         {
+            "score": 950754,
+            "acc": 98.56414742687612,
+            "rank": "S",
+            "time": "2026-05-04 21:31",
+            "rate": 1.0
+        },
+        {
             "score": 749500,
             "acc": 86.94895591647331,
             "time": "2026-05-03 03:00",
@@ -43,6 +50,41 @@
     ],
     "songs/1360153 Various Artists - Malody Essential Pack/Various Artists - Malody Essential Pack (Magikarp1234) [Latitude (Curta1n's 4K Hyper Lv.15)].json": [
         {
+            "score": 975552,
+            "acc": 99.27040172941813,
+            "rank": "S",
+            "time": "2026-05-04 13:19",
+            "rate": 1.0
+        },
+        {
+            "score": 973695,
+            "acc": 99.21410556656458,
+            "rank": "S",
+            "time": "2026-05-04 13:22",
+            "rate": 1.0
+        },
+        {
+            "score": 971916,
+            "acc": 99.16006125022518,
+            "rank": "S",
+            "time": "2026-05-04 21:29",
+            "rate": 1.0
+        },
+        {
+            "score": 966161,
+            "acc": 98.98441722212215,
+            "rank": "S",
+            "time": "2026-05-04 21:26",
+            "rate": 1.0
+        },
+        {
+            "score": 894197,
+            "acc": 98.54981084489282,
+            "rank": "S",
+            "time": "2026-05-04 14:49",
+            "rate": 1.0
+        },
+        {
             "score": 873739,
             "acc": 95.98045397225725,
             "rank": "S",
@@ -54,6 +96,13 @@
             "acc": 95.8048099441542,
             "rank": "S",
             "time": "2026-05-04 02:40",
+            "rate": 1.0
+        },
+        {
+            "score": 827344,
+            "acc": 96.37452711223203,
+            "rank": "S",
+            "time": "2026-05-04 13:17",
             "rate": 1.0
         },
         {
@@ -69,36 +118,119 @@
             "rank": "A",
             "time": "2026-05-04 00:58",
             "rate": 1.0
+        }
+    ],
+    "songs/1360153 Various Artists - Malody Essential Pack/Various Artists - Malody Essential Pack (Magikarp1234) [Sterelogue (wscxzl's 4K Another Lv.23)].json": [
+        {
+            "score": 839487,
+            "acc": 96.84542586750788,
+            "rank": "S",
+            "time": "2026-05-04 14:08",
+            "rate": 1.0
+        }
+    ],
+    "songs/1701667 Various Artists - Malody 4K Regular Dan v3-Stream/Various Artists - Malody 4K Regular Dan v3-Stream (Muses) [Reg-3 Hoshi ga Furanai Machi  Hylotl].json": [
+        {
+            "score": 798076,
+            "acc": 96.90598788231655,
+            "rank": "S",
+            "time": "2026-05-04 22:11",
+            "rate": 1.0
         },
         {
-            "score": 730352,
-            "acc": 90.46793370563863,
+            "score": 777335,
+            "acc": 94.99827150161023,
             "rank": "A",
-            "time": "2026-05-04 00:35",
+            "time": "2026-05-04 22:07",
             "rate": 1.0
         },
         {
-            "score": 650750,
-            "acc": 89.38873626373626,
-            "time": "2026-05-03 22:04",
+            "score": 645189,
+            "acc": 90.01291825112352,
+            "rank": "A",
+            "time": "2026-05-04 21:52",
             "rate": 1.0
         },
         {
-            "score": 627250,
-            "acc": 86.16071428571429,
-            "time": "2026-05-03 21:58",
+            "score": 543177,
+            "acc": 85.49062062189553,
+            "rank": "B",
+            "time": "2026-05-04 21:39",
+            "rate": 1.0
+        }
+    ],
+    "songs/1701667 Various Artists - Malody 4K Regular Dan v3-Stream/Various Artists - Malody 4K Regular Dan v3-Stream (Muses) [Reg-9 Unleashed World  Amekaze].json": [
+        {
+            "score": 647985,
+            "acc": 91.89392173620283,
+            "rank": "A",
+            "time": "2026-05-04 21:43",
+            "rate": 1.0
+        }
+    ],
+    "songs/1701667 Various Artists - Malody 4K Regular Dan v3-Stream/Various Artists - Malody 4K Regular Dan v3-Stream (Muses) [Reg-5 Joker  HarKIn].json": [
+        {
+            "score": 963251,
+            "acc": 98.89511542321847,
+            "rank": "S",
+            "time": "2026-05-04 21:48",
             "rate": 1.0
         },
         {
-            "score": 219605,
-            "acc": 98.90335074761303,
-            "time": "2026-05-03 22:42",
+            "score": 728283,
+            "acc": 90.37888926062229,
+            "rank": "A",
+            "time": "2026-05-04 21:46",
+            "rate": 1.0
+        }
+    ],
+    "songs/1701660 Various Artists - Malody 4K Regular Dan v3-Jack/Various Artists - Malody 4K Regular Dan v3-Jack (Muses) [Reg-4 Umiyuri Kaiteitan  MACKEREL].json": [
+        {
+            "score": 791946,
+            "acc": 97.08941718060899,
+            "rank": "S",
+            "time": "2026-05-04 23:33",
             "rate": 1.0
         },
         {
-            "score": 219600,
-            "acc": 98.9010989010989,
-            "time": "2026-05-03 22:19",
+            "score": 694316,
+            "acc": 93.25373816175566,
+            "rank": "A",
+            "time": "2026-05-04 21:55",
+            "rate": 1.0
+        }
+    ],
+    "songs/1701668 Various Artists - Malody 4K Regular Dan v3-Starter/Various Artists - Malody 4K Regular Dan v3-Starter (Muses) [Reg-2 Map-1 Stargazer  Mipha-].json": [
+        {
+            "score": 793309,
+            "acc": 93.03777415304458,
+            "rank": "A",
+            "time": "2026-05-04 22:02",
+            "rate": 1.0
+        },
+        {
+            "score": 699712,
+            "acc": 89.11602145111891,
+            "rank": "B",
+            "time": "2026-05-04 21:58",
+            "rate": 1.0
+        }
+    ],
+    "songs/1360153 Various Artists - Malody Essential Pack/Various Artists - Malody Essential Pack (Magikarp1234) [iowo - DREAM (victorica's KEY BEGINNER LV.2)].json": [
+        {
+            "score": 962005,
+            "acc": 98.8567730802416,
+            "rank": "S",
+            "time": "2026-05-04 22:16",
+            "rate": 1.0
+        }
+    ],
+    "songs/1360153 Various Artists - Malody Essential Pack/Various Artists - Malody Essential Pack (Magikarp1234) [Mujinku-Vacuum Track#ADD8E6- (Biemote's 4K Another Lv.24)].json": [
+        {
+            "score": 820677,
+            "acc": 96.29556680100603,
+            "rank": "S",
+            "time": "2026-05-04 22:32",
             "rate": 1.0
         }
     ]

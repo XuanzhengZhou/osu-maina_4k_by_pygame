@@ -129,6 +129,8 @@ clock = None
 active_skin_name = None       # 当前选中的皮肤名称 (None = 默认皮肤)
 skin_assets = None            # 加载后的皮肤资源 dict
 key_pressed_state = [False, False, False, False]  # 四轨按键按下状态
+note_width = 80     # 当前音符宽度 (stage_scale 变化时更新)
+stage_lanes = [50, 150, 250, 350]  # 当前轨道 X 坐标
 
 # 音频系统可用性标志
 mixer_available = False
@@ -181,6 +183,45 @@ def save_history():
     with open("history.json", "w", encoding="utf-8") as f:
         json.dump(history_data, f, indent=4)
 
+
+# --- 延迟历史记录 ---
+
+delay_records = []  # 每局平均延迟 (ms) 的列表
+
+
+def load_delay_history():
+    global delay_records
+    path = "delay_history.json"
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                delay_records = json.load(f)
+        except:
+            delay_records = []
+    else:
+        delay_records = []
+
+
+def save_delay_history():
+    with open("delay_history.json", "w", encoding="utf-8") as f:
+        json.dump(delay_records, f, indent=2)
+
+
+def add_delay_record(avg_ms):
+    """添加一局游戏的平均延迟记录（保留最近 200 条）。"""
+    global delay_records
+    delay_records.append(round(avg_ms, 1))
+    if len(delay_records) > 200:
+        delay_records = delay_records[-200:]
+    save_delay_history()
+
+
+def get_average_delay():
+    """返回所有延迟记录的平均值，无记录时返回 0。"""
+    if not delay_records:
+        return 0.0
+    return sum(delay_records) / len(delay_records)
+
 def load_config():
     load_history()
     global config, active_skin_name
@@ -195,7 +236,11 @@ def load_config():
             "fullscreen": False,
             "active_skin": "",
             "hit_position": 500,
-            "od": 5.0
+            "od": 5.0,
+            "stage_spacing": 100,
+            "stage_scale": 1.0,
+            "show_fps": True,
+            "mirror_mode": False
         }
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(default_config, f, indent=4)
@@ -421,6 +466,7 @@ def init_globals():
 
     load_config()
     load_history()
+    load_delay_history()
     screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     set_display_mode()
     pygame.key.stop_text_input()
@@ -602,6 +648,12 @@ def audio_unpause():
                 pygame.mixer.music.unpause()
             except Exception:
                 pass
+
+
+def audio_seek(ms):
+    """跳转到指定毫秒位置（仅BASS支持）。"""
+    if mixer_available and _bass_available():
+        _bass_module.music_seek(ms)
 
 
 def audio_stop():

@@ -47,6 +47,7 @@ class ReplayData:
         self.scroll_speed = scroll_speed
         self.hit_position = hit_position
         self.modified = False  # 是否有 mod 修改
+        self.mirror_mode = False
         self.frames = []       # list of ReplayFrame
         self.judgments = []    # list of ReplayJudgment
         self.total_notes = 0
@@ -83,6 +84,7 @@ class ReplayData:
             "scroll_speed": self.scroll_speed,
             "hit_position": self.hit_position,
             "modified": self.modified,
+            "mirror_mode": self.mirror_mode,
             "total_notes": self.total_notes,
             "max_combo": self.max_combo,
             "counts": self.counts,
@@ -103,6 +105,7 @@ class ReplayData:
         r.scroll_speed = d.get("scroll_speed", 24)
         r.hit_position = d.get("hit_position", 500)
         r.modified = d.get("modified", False)
+        r.mirror_mode = d.get("mirror_mode", False)
         r.total_notes = d.get("total_notes", 0)
         r.max_combo = d.get("max_combo", 0)
         r.counts = d.get("counts", {})

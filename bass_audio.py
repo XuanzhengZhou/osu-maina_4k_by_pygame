@@ -200,6 +200,26 @@ class BassStream:
             # BASS 使用字节位置，但对于流没有直接的毫秒设置
             pass
 
+    def seek_ms(self, ms):
+        """跳转到指定毫秒位置。"""
+        if self._handle and _initialized:
+            # BASS_POS_BYTE = 0, 将 ms 转为字节位置
+            import ctypes
+            _bass.BASS_ChannelSetPosition.argtypes = [ctypes.c_uint, ctypes.c_uint64, ctypes.c_uint]
+            _bass.BASS_ChannelSetPosition.restype = ctypes.c_int
+            # 获取流的采样率
+            class BASS_CHANNELINFO(ctypes.Structure):
+                _fields_ = [("freq", ctypes.c_uint), ("chans", ctypes.c_uint),
+                            ("flags", ctypes.c_uint), ("ctype", ctypes.c_uint),
+                            ("origres", ctypes.c_uint), ("plugin", ctypes.c_uint),
+                            ("sample", ctypes.c_uint), ("filename", ctypes.c_char_p)]
+            info = BASS_CHANNELINFO()
+            _bass.BASS_ChannelGetInfo.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+            _bass.BASS_ChannelGetInfo.restype = ctypes.c_int
+            _bass.BASS_ChannelGetInfo(self._handle, ctypes.byref(info))
+            byte_pos = int(ms * info.freq * info.chans * 2 / 1000)
+            _bass.BASS_ChannelSetPosition(self._handle, byte_pos, 0)
+
     def get_pos_ms(self):
         """获取播放位置（毫秒），用于同步。"""
         if not self._handle or not _initialized:
@@ -234,6 +254,11 @@ def music_pause():
 def music_stop():
     """停止音乐。"""
     _stream.stop()
+
+
+def music_seek(ms):
+    """跳转到指定毫秒位置。"""
+    _stream.seek_ms(ms)
 
 
 def music_unload():

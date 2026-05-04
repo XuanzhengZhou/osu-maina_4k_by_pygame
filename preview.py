@@ -26,8 +26,13 @@ def show_history(map_path):
                 # 记录格式: 
                 # (分数) (ACC)
                 # (时间) (倍速)
+                mods = []
+                if rec.get('rate', 1.0) != 1.0: mods.append(f"{rec['rate']:.1f}x")
+                if rec.get('mirror'): mods.append("Mirror")
+                mods.append(f"OD:{rec.get('od', 5.0):.1f}")
+                mods_str = "  ".join(mods)
                 lines.append(f"#{i+1} 分数: {rec['score']}  ACC: {rec['acc']:.2f}%")
-                lines.append(f"    {rec['time']}  (倍速: {rec.get('rate', 1.0)}x)")
+                lines.append(f"    {rec['time']}  [{mods_str}]")
                 lines.append("") # 留空一行间距
                 
         lines.append("按 [ESC] 返回")
